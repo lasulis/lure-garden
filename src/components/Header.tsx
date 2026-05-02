@@ -2,15 +2,17 @@ import { Link } from "@tanstack/react-router";
 import { Search, Menu, X, Heart, Linkedin } from "lucide-react";
 import { useState } from "react";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { useAdminSession } from "@/hooks/use-admin-session";
 
 export function Header() {
   const [open, setOpen] = useState(false);
-  const nav = [
+  const { isAdmin } = useAdminSession();
+  const publicNav = [
     { to: "/", label: "Home" },
     { to: "/categorias", label: "Categorias" },
-    { to: "/escrever", label: "Escrever" },
     { to: "/sobre", label: "Sobre" },
   ] as const;
+  const nav = isAdmin ? [...publicNav, { to: "/admin", label: "Admin" }] : publicNav;
 
   return (
     <header className="sticky top-0 z-50 border-b border-border/60 bg-background/70 backdrop-blur-xl">

@@ -1,10 +1,19 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "lure-garden",
-  "compatibility_date": "2025-09-24",
-  "compatibility_flags": ["nodejs_compat"],
-  "main": "dist/server/index.js",
-  "assets": {
-    "directory": "dist/client"
-  }
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "lure-garden",
+	"compatibility_date": "2025-09-24",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"main": "dist/server/server.js",
+	"assets": {
+		"directory": "dist/client"
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "lure-garden-db",
+			"database_id": "72eff55c-18fb-4b11-8e69-cb5a76aa0547"
+		}
+	]
 }

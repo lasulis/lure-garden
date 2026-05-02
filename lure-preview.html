@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Comparação Lure — antes / depois</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400;1,9..144,600&family=Inter:wght@500;600&family=Pinyon+Script&display=swap" />
+  <style>
+    :root {
+      --bg: #0b0b0b;
+      --fg: #f0eee5;
+      --muted: #a8a39a;
+      --crimson: #e84545;
+      --clay: #e08a3a;
+      --leaf: #c9c34a;
+    }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: 'Inter', system-ui, sans-serif;
+      padding: 32px 48px 80px;
+      overflow-x: clip;
+    }
+    h1 { font-family: 'Fraunces', serif; font-weight: 600; }
+    .legend { color: var(--muted); font-size: 14px; margin: 4px 0 24px; }
+    .stage { max-width: 80rem; margin: 0 auto; }
+    .row { padding: 24px 16px 60px; border-top: 1px dashed #333; }
+    .row + .row { margin-top: 0; }
+
+    .font-script { font-family: 'Pinyon Script', cursive; }
+    .font-display { font-family: 'Fraunces', serif; }
+
+    /* Antes (viewBox apertado) */
+    .old-svg {
+      display: block;
+      height: auto;
+      width: 38rem;
+      max-width: calc(100% + 5.25rem);
+      margin-left: -5.25rem;
+      overflow: visible;
+    }
+    .old-luiza { margin-top: -3rem; font-weight: 500; letter-spacing: 0.25em; font-size: 20px; }
+
+    /* Depois (viewBox folgado) */
+    .new-svg {
+      display: block;
+      height: auto;
+      width: 38rem;
+      max-width: calc(100% + 7.25rem);
+      margin-left: -7.25rem;
+      overflow: visible;
+    }
+    .new-luiza { margin-top: -5.5rem; font-weight: 500; letter-spacing: 0.25em; font-size: 20px; }
+
+    .junior { margin-top: 8px; font-family: 'Inter', monospace; font-size: 12px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--crimson); }
+
+    .vb-frame { outline: 1px dashed rgba(255,255,255,0.18); outline-offset: 0; }
+  </style>
+</head>
+<body>
+  <div class="stage">
+    <h1>Lure — antes (corte) vs depois (sem corte)</h1>
+    <p class="legend">A linha tracejada mostra os limites do <code>viewBox</code>. Note como, no “antes”, a curva do L escapa pela borda esquerda/inferior; no “depois” cabe inteira.</p>
+
+    <section class="row">
+      <p class="legend">ANTES — viewBox <code>-92 -126 680 320</code></p>
+      <svg class="old-svg vb-frame" overflow="visible" viewBox="-92 -126 680 320" aria-hidden="true">
+        <defs>
+          <linearGradient id="g-old" x1="0" x2="1" y1="0.5" y2="0.5">
+            <stop offset="0%" stop-color="var(--crimson)"/>
+            <stop offset="45%" stop-color="var(--clay)"/>
+            <stop offset="100%" stop-color="var(--leaf)"/>
+          </linearGradient>
+        </defs>
+        <text class="font-script" fill="url(#g-old)" font-size="196" x="0" y="126">L</text>
+        <text class="font-display" fill="url(#g-old)" font-size="128" font-style="italic" x="148" y="122">ure</text>
+      </svg>
+      <p class="old-luiza">LUIZA REIXACH CASTRO</p>
+      <p class="junior">junior data scientist</p>
+    </section>
+
+    <section class="row">
+      <p class="legend">DEPOIS — viewBox <code>-130 -150 680 380</code> (mais espaço à esquerda e embaixo, mesma proporção visual do L)</p>
+      <svg class="new-svg vb-frame" overflow="visible" preserveAspectRatio="xMinYMid meet" viewBox="-130 -150 680 380" aria-hidden="true">
+        <defs>
+          <linearGradient id="g-new" x1="0" x2="1" y1="0.5" y2="0.5">
+            <stop offset="0%" stop-color="var(--crimson)"/>
+            <stop offset="45%" stop-color="var(--clay)"/>
+            <stop offset="100%" stop-color="var(--leaf)"/>
+          </linearGradient>
+        </defs>
+        <text class="font-script" fill="url(#g-new)" font-size="196" x="0" y="126">L</text>
+        <text class="font-display" fill="url(#g-new)" font-size="128" font-style="italic" x="158" y="122">ure</text>
+      </svg>
+      <p class="new-luiza">LUIZA REIXACH CASTRO</p>
+      <p class="junior">junior data scientist</p>
+    </section>
+  </div>
+
+  <script>
+    document.fonts.ready.then(() => {
+      // Print bbox info into the page for sanity
+      const dump = (svg) => {
+        const [t1, t2] = svg.querySelectorAll('text');
+        const b1 = t1.getBBox(), b2 = t2.getBBox();
+        const fmt = (n) => n.toFixed(1);
+        return `L bbox: x=${fmt(b1.x)} y=${fmt(b1.y)} w=${fmt(b1.width)} h=${fmt(b1.height)} (right=${fmt(b1.x+b1.width)}, bottom=${fmt(b1.y+b1.height)})\n` +
+               `ure bbox: x=${fmt(b2.x)} y=${fmt(b2.y)} w=${fmt(b2.width)} h=${fmt(b2.height)} (right=${fmt(b2.x+b2.width)}, bottom=${fmt(b2.y+b2.height)})`;
+      };
+      const oldSvg = document.querySelector('.old-svg');
+      const newSvg = document.querySelector('.new-svg');
+      const log = document.createElement('pre');
+      log.style.cssText = 'background:#111;color:#cbd;border:1px solid #333;padding:12px;border-radius:6px;font-family:monospace;font-size:12px;margin-top:24px;';
+      log.textContent =
+        `OLD viewBox=${oldSvg.getAttribute('viewBox')}\n${dump(oldSvg)}\n\n` +
+        `NEW viewBox=${newSvg.getAttribute('viewBox')}\n${dump(newSvg)}`;
+      document.querySelector('.stage').appendChild(log);
+    });
+  </script>
+</body>
+</html>

@@ -10,14 +10,21 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SobreRouteImport } from './routes/sobre'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as EscreverRouteImport } from './routes/escrever'
 import { Route as CategoriasRouteImport } from './routes/categorias'
+import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PostsSlugRouteImport } from './routes/posts/$slug'
 
 const SobreRoute = SobreRouteImport.update({
   id: '/sobre',
   path: '/sobre',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EscreverRoute = EscreverRouteImport.update({
@@ -28,6 +35,11 @@ const EscreverRoute = EscreverRouteImport.update({
 const CategoriasRoute = CategoriasRouteImport.update({
   id: '/categorias',
   path: '/categorias',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -43,38 +55,68 @@ const PostsSlugRoute = PostsSlugRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/categorias': typeof CategoriasRoute
   '/escrever': typeof EscreverRoute
+  '/login': typeof LoginRoute
   '/sobre': typeof SobreRoute
   '/posts/$slug': typeof PostsSlugRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/categorias': typeof CategoriasRoute
   '/escrever': typeof EscreverRoute
+  '/login': typeof LoginRoute
   '/sobre': typeof SobreRoute
   '/posts/$slug': typeof PostsSlugRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/categorias': typeof CategoriasRoute
   '/escrever': typeof EscreverRoute
+  '/login': typeof LoginRoute
   '/sobre': typeof SobreRoute
   '/posts/$slug': typeof PostsSlugRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/categorias' | '/escrever' | '/sobre' | '/posts/$slug'
+  fullPaths:
+    | '/'
+    | '/admin'
+    | '/categorias'
+    | '/escrever'
+    | '/login'
+    | '/sobre'
+    | '/posts/$slug'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/categorias' | '/escrever' | '/sobre' | '/posts/$slug'
-  id: '__root__' | '/' | '/categorias' | '/escrever' | '/sobre' | '/posts/$slug'
+  to:
+    | '/'
+    | '/admin'
+    | '/categorias'
+    | '/escrever'
+    | '/login'
+    | '/sobre'
+    | '/posts/$slug'
+  id:
+    | '__root__'
+    | '/'
+    | '/admin'
+    | '/categorias'
+    | '/escrever'
+    | '/login'
+    | '/sobre'
+    | '/posts/$slug'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminRoute: typeof AdminRoute
   CategoriasRoute: typeof CategoriasRoute
   EscreverRoute: typeof EscreverRoute
+  LoginRoute: typeof LoginRoute
   SobreRoute: typeof SobreRoute
   PostsSlugRoute: typeof PostsSlugRoute
 }
@@ -86,6 +128,13 @@ declare module '@tanstack/react-router' {
       path: '/sobre'
       fullPath: '/sobre'
       preLoaderRoute: typeof SobreRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/escrever': {
@@ -100,6 +149,13 @@ declare module '@tanstack/react-router' {
       path: '/categorias'
       fullPath: '/categorias'
       preLoaderRoute: typeof CategoriasRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -121,8 +177,10 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminRoute: AdminRoute,
   CategoriasRoute: CategoriasRoute,
   EscreverRoute: EscreverRoute,
+  LoginRoute: LoginRoute,
   SobreRoute: SobreRoute,
   PostsSlugRoute: PostsSlugRoute,
 }

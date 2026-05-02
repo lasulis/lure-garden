@@ -89,9 +89,9 @@ function HomePage() {
               {/* Mobile: viewBox apertado para encostar o L no topo */}
               <svg
                 aria-hidden="true"
-                className="-ml-[2rem] block h-auto w-[22rem] max-w-[calc(100%+2rem)] overflow-visible sm:hidden"
+                className="-ml-[2.75rem] block h-auto w-[22rem] max-w-[calc(100%+2.75rem)] overflow-visible sm:hidden"
                 overflow="visible"
-                viewBox="-92 -30 680 230"
+                viewBox="-92 -42 740 245"
               >
                 <defs>
                   <linearGradient id="lure-wordmark-gradient-mobile" x1="0" x2="1" y1="0.5" y2="0.5">
@@ -107,7 +107,7 @@ function HomePage() {
                   x="0"
                   y="126"
                 >
-                  L
+                  {"L\u00A0\u00A0\u00A0\u00A0"}
                 </text>
                 <text
                   className="font-display"
@@ -125,7 +125,7 @@ function HomePage() {
                 aria-hidden="true"
                 className="hidden h-auto overflow-visible sm:-ml-[4.5rem] sm:block sm:w-[33rem] sm:max-w-[calc(100%+4.5rem)] md:-ml-[5.25rem] md:w-[38rem] md:max-w-[calc(100%+5.25rem)]"
                 overflow="visible"
-                viewBox="-92 -126 680 320"
+                viewBox="-92 -140 740 340"
               >
                 <defs>
                   <linearGradient id="lure-wordmark-gradient" x1="0" x2="1" y1="0.5" y2="0.5">
@@ -141,7 +141,7 @@ function HomePage() {
                   x="0"
                   y="126"
                 >
-                  L
+                  {"L\u00A0\u00A0\u00A0\u00A0"}
                 </text>
                 <text
                   className="font-display"
@@ -182,7 +182,7 @@ function HomePage() {
       {/* Grid + Sidebar */}
       <section className="mx-auto mt-20 max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="grid gap-12 lg:grid-cols-[1fr_320px]">
-          <div>
+          <div className="min-w-0">
             <div className="mb-8 flex items-end justify-between">
               <div>
                 <p className="font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">
@@ -209,10 +209,10 @@ function HomePage() {
                   const cat = posts[0].category;
                   return (
                     <div key={slug}>
-                      <div className="mb-3 flex items-end justify-between gap-4 sm:mb-5">
-                        <div className="flex items-center gap-3">
+                      <div className="mb-3 flex min-w-0 items-end justify-between gap-4 sm:mb-5">
+                        <div className="flex min-w-0 flex-wrap items-center gap-3">
                           <span className={`h-2 w-2 rounded-full ${catColorMap[cat.color]?.dot ?? "bg-foreground"}`} />
-                          <h3 className="font-display text-base italic sm:text-2xl">{cat.name}</h3>
+                          <h3 className="min-w-0 break-words font-display text-base italic sm:text-2xl">{cat.name}</h3>
                           <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground sm:text-[11px]">
                             {posts.length} {posts.length === 1 ? "post" : "posts"}
                           </span>
@@ -221,7 +221,7 @@ function HomePage() {
                           ver todos →
                         </a>
                       </div>
-                      <div className="grid gap-5 grid-cols-1 sm:grid-cols-2 md:grid-cols-3">
+                      <div className="grid min-w-0 grid-cols-1 gap-5 sm:grid-cols-2 md:grid-cols-3">
                         {posts.map((p) => (
                           <PostCard key={p.slug} post={p} />
                         ))}
