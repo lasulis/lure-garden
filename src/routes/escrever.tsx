@@ -12,6 +12,7 @@ import {
   Quote,
   Save,
   Sigma,
+  Sparkles,
   Table2,
   Type,
   Workflow,
@@ -24,6 +25,12 @@ import { DataFrameTable } from "@/components/DataFrameTable";
 import { DiagramEditor } from "@/components/DiagramEditor";
 import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
+import { useAdminSession } from "@/hooks/use-admin-session";
+import {
+  type TechnicalReviewResult,
+  reviewGrammar,
+  reviewTechnicalContent,
+} from "@/lib/ai-review";
 import { diagramToSvg, emptyDiagram, makeDiagramId } from "@/lib/diagram";
 import { renderLatexHtml } from "@/lib/latex-render";
 import { categories } from "@/lib/posts";
@@ -113,6 +120,26 @@ type WriterDraft = {
   savedAt: number;
 };
 
+type GrammarTextTarget =
+  | {
+      id: string;
+      kind: "title" | "excerpt";
+      text: string;
+    }
+  | {
+      id: string;
+      kind: "node";
+      text: string;
+      node: Text;
+    };
+
+type TechnicalReviewDialog = {
+  result: TechnicalReviewResult;
+  originalText: string;
+  canApply: boolean;
+  suggestedHtml: string;
+} | null;
+
 function draftKey(slug: string) {
   return `${draftPrefix}:${slug || "novo"}`;
 }
@@ -155,6 +182,196 @@ function countWordsFromHtml(html: string) {
     .trim()
     .split(/\s+/)
     .filter(Boolean).length;
+}
+
+function isInsideIgnoredAiElement(node: Node) {
+  const element = node.parentElement;
+
+  return Boolean(
+    element?.closest(
+      [
+        "[data-lure-code-widget]",
+        "[data-lure-latex-widget]",
+        "[data-lure-table-widget]",
+        "[data-lure-diagram-widget]",
+        "[data-lure-image-figure]",
+        "pre",
+        "code",
+        "table",
+        "figure",
+      ].join(","),
+    ),
+  );
+}
+
+function collectGrammarTextTargets(root: HTMLElement | null, title: string, excerpt: string) {
+  const targets: GrammarTextTarget[] = [];
+
+  if (title.trim()) {
+    targets.push({ id: "meta-title", kind: "title", text: title });
+  }
+
+  if (excerpt.trim()) {
+    targets.push({ id: "meta-excerpt", kind: "excerpt", text: excerpt });
+  }
+
+  if (!root || typeof document === "undefined") return targets;
+
+  let index = 0;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (!node.textContent?.trim()) return NodeFilter.FILTER_REJECT;
+      if (isInsideIgnoredAiElement(node)) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+
+  let current = walker.nextNode();
+  while (current) {
+    targets.push({
+      id: `editor-text-${index}`,
+      kind: "node",
+      text: current.textContent ?? "",
+      node: current as Text,
+    });
+    index += 1;
+    current = walker.nextNode();
+  }
+
+  return targets;
+}
+
+function collectReviewText(root: HTMLElement | null, title: string, excerpt: string) {
+  const pieces = [title.trim(), excerpt.trim()].filter(Boolean);
+
+  if (!root || typeof document === "undefined") return pieces.join("\n\n");
+
+  const clone = root.cloneNode(true) as HTMLElement;
+  clone
+    .querySelectorAll(
+      [
+        "[data-lure-code-widget]",
+        "[data-lure-latex-widget]",
+        "[data-lure-table-widget]",
+        "[data-lure-diagram-widget]",
+        "[data-lure-image-figure]",
+        "pre",
+        "code",
+        "table",
+        "figure",
+      ].join(","),
+    )
+    .forEach((element) => element.remove());
+
+  const editorText = clone.textContent?.replace(/\n{3,}/g, "\n\n").trim();
+  if (editorText) pieces.push(editorText);
+  return pieces.join("\n\n");
+}
+
+function cleanSelectionHtmlForAi(range: Range | null) {
+  if (!range || typeof document === "undefined") return "";
+
+  const container = document.createElement("div");
+  container.appendChild(range.cloneContents());
+
+  const cleanNode = (node: Node): Node | DocumentFragment | null => {
+    if (node.nodeType === Node.TEXT_NODE) return document.createTextNode(node.textContent ?? "");
+    if (!(node instanceof HTMLElement)) return null;
+
+    const tag = node.tagName.toLowerCase();
+    if (["script", "style", "img", "svg", "button", "input", "textarea", "select"].includes(tag)) {
+      return null;
+    }
+
+    const children = Array.from(node.childNodes)
+      .map(cleanNode)
+      .filter((child): child is Node | DocumentFragment => Boolean(child));
+
+    if (tag === "br") return document.createElement("br");
+
+    const allowedTag = ["span", "strong", "b", "em", "i"].includes(tag) ? tag : "";
+    const next = allowedTag ? document.createElement(allowedTag) : document.createDocumentFragment();
+
+    if (next instanceof HTMLElement && tag === "span") {
+      const color = node.dataset.lureColor;
+      const fontSize = node.dataset.lureFontSize;
+      const fontFamily = node.dataset.lureFontFamily;
+
+      if (color && textColors.some((item) => item.value === color)) next.dataset.lureColor = color;
+      if (fontSize && Number.isFinite(Number(fontSize))) next.dataset.lureFontSize = fontSize;
+      if (fontFamily && fontFamilies.some((item) => item.value === fontFamily)) {
+        next.dataset.lureFontFamily = fontFamily;
+      }
+    }
+
+    children.forEach((child) => next.appendChild(child));
+    return next;
+  };
+
+  const cleaned = document.createElement("div");
+  Array.from(container.childNodes).forEach((node) => {
+    const clean = cleanNode(node);
+    if (clean) cleaned.appendChild(clean);
+  });
+
+  return cleaned.innerHTML;
+}
+
+function sanitizeAiSuggestionHtml(html: string) {
+  if (typeof document === "undefined" || !html.trim()) return null;
+
+  const template = document.createElement("template");
+  template.innerHTML = html;
+
+  const cleanNode = (node: Node): Node | DocumentFragment | null => {
+    if (node.nodeType === Node.TEXT_NODE) return document.createTextNode(node.textContent ?? "");
+    if (!(node instanceof HTMLElement)) return null;
+
+    const tag = node.tagName.toLowerCase();
+    if (tag === "br") return document.createElement("br");
+
+    const allowedTag = ["span", "strong", "b", "em", "i"].includes(tag) ? tag : "";
+    const next = allowedTag ? document.createElement(allowedTag) : document.createDocumentFragment();
+
+    if (next instanceof HTMLElement && tag === "span") {
+      const color = node.dataset.lureColor;
+      const fontSize = node.dataset.lureFontSize;
+      const fontFamily = node.dataset.lureFontFamily;
+      const colorDef = textColors.find((item) => item.value === color);
+      const familyDef = fontFamilies.find((item) => item.value === fontFamily);
+      const parsedSize = Number(fontSize);
+
+      if (colorDef) {
+        next.dataset.lureColor = colorDef.value;
+        next.style.color = colorDef.css;
+      }
+
+      if (Number.isFinite(parsedSize) && parsedSize >= 10 && parsedSize <= 96) {
+        next.dataset.lureFontSize = String(parsedSize);
+        next.style.fontSize = `${parsedSize}px`;
+      }
+
+      if (familyDef) {
+        next.dataset.lureFontFamily = familyDef.value;
+        next.style.fontFamily = familyDef.css;
+      }
+    }
+
+    Array.from(node.childNodes).forEach((child) => {
+      const clean = cleanNode(child);
+      if (clean) next.appendChild(clean);
+    });
+
+    return next;
+  };
+
+  const fragment = document.createDocumentFragment();
+  Array.from(template.content.childNodes).forEach((node) => {
+    const clean = cleanNode(node);
+    if (clean) fragment.appendChild(clean);
+  });
+
+  return fragment;
 }
 
 function escapeHtml(value: string) {
@@ -1104,9 +1321,11 @@ function PostPreview({
 }
 
 function WritePage() {
+  const { accessToken, isAdmin, isLoading: isCheckingAdmin } = useAdminSession();
   const editorRef = useRef<HTMLDivElement | null>(null);
   const inlineImageInputRef = useRef<HTMLInputElement | null>(null);
   const savedRangeRef = useRef<Range | null>(null);
+  const technicalReviewRangeRef = useRef<Range | null>(null);
   const seededEditorRef = useRef(false);
   const editorHtmlRef = useRef(emptyEditor);
   const historyPastRef = useRef<string[]>([]);
@@ -1127,6 +1346,7 @@ function WritePage() {
   const [editorHtml, setEditorHtml] = useState(emptyEditor);
   const [status, setStatus] = useState("");
   const [draftStatus, setDraftStatus] = useState("");
+  const [availableDraft, setAvailableDraft] = useState<WriterDraft | null>(null);
   const [published, setPublished] = useState<PublishedPost | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
   const [editingSlug, setEditingSlug] = useState("");
@@ -1138,9 +1358,17 @@ function WritePage() {
   const [fontFamily, setFontFamily] = useState("sans");
   const [selectedImageId, setSelectedImageId] = useState("");
   const [selectedImageWidth, setSelectedImageWidth] = useState(72);
+  const [isAiReviewing, setIsAiReviewing] = useState<"grammar" | "technical" | null>(null);
+  const [technicalReviewDialog, setTechnicalReviewDialog] = useState<TechnicalReviewDialog>(null);
   const [diagramModal, setDiagramModal] = useState<
     { widgetId: string; diagram: Diagram } | null
   >(null);
+
+  useEffect(() => {
+    if (isCheckingAdmin || isAdmin || typeof window === "undefined") return;
+    const redirect = encodeURIComponent(`${window.location.pathname}${window.location.search}`);
+    window.location.href = `/login?redirect=${redirect}`;
+  }, [isAdmin, isCheckingAdmin]);
 
   const blocks = useMemo(() => {
     if (typeof document === "undefined") return [];
@@ -1197,6 +1425,7 @@ function WritePage() {
         minute: "2-digit",
       }).format(new Date(draft.savedAt))}`,
     );
+    setAvailableDraft(null);
   }, []);
 
   const hydratePost = useCallback((post: PublishedPost) => {
@@ -1218,8 +1447,16 @@ function WritePage() {
     }
 
     const draft = readWriterDraft(post.slug);
-    if (draft) applyDraft(draft);
-  }, [applyDraft]);
+    setAvailableDraft(draft);
+    if (draft) {
+      setDraftStatus(
+        `rascunho salvo disponível às ${new Intl.DateTimeFormat("pt-BR", {
+          hour: "2-digit",
+          minute: "2-digit",
+        }).format(new Date(draft.savedAt))}`,
+      );
+    }
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1268,13 +1505,21 @@ function WritePage() {
     if (slug) return;
 
     const draft = readWriterDraft("");
-    if (draft) applyDraft(draft);
-  }, [applyDraft]);
+    setAvailableDraft(draft);
+    if (draft) {
+      setDraftStatus(
+        `rascunho salvo disponível às ${new Intl.DateTimeFormat("pt-BR", {
+          hour: "2-digit",
+          minute: "2-digit",
+        }).format(new Date(draft.savedAt))}`,
+      );
+    }
+  }, []);
 
   const setEditorElement = useCallback((node: HTMLDivElement | null) => {
     editorRef.current = node;
 
-    if (node && !seededEditorRef.current) {
+    if (node && (!seededEditorRef.current || node.innerHTML.trim() === "")) {
       node.innerHTML = editorHtmlRef.current || emptyEditor;
       refreshWidgetPreviews(node);
       seededEditorRef.current = true;
@@ -1309,53 +1554,74 @@ function WritePage() {
     setEditorHtml(nextHtml);
   };
 
+  const saveCurrentDraftNow = useCallback((statusLabel = "rascunho salvo") => {
+    if (!editorRef.current) return;
+
+    const current = draftStateRef.current;
+    if (current.isLoadingPost) return;
+
+    transformDividerLines(editorRef.current);
+    syncTextareaMarkup(editorRef.current);
+
+    const nextHtml = editorRef.current.innerHTML;
+    const hasContent =
+      Boolean(current.editingSlug) ||
+      Boolean(current.title.trim()) ||
+      Boolean(current.excerpt.trim()) ||
+      Boolean(current.coverDataUrl) ||
+      Boolean(textFromHtml(nextHtml).trim());
+
+    if (!hasContent) return;
+
+    const savedAt = Date.now();
+    saveWriterDraft(current.editingSlug, {
+      title: current.title,
+      excerpt: current.excerpt,
+      categorySlug: current.categorySlug,
+      coverDataUrl: current.coverDataUrl,
+      editorHtml: nextHtml,
+      savedAt,
+    });
+
+    if (nextHtml !== editorHtmlRef.current) {
+      editorHtmlRef.current = nextHtml;
+      setEditorHtml(nextHtml);
+    }
+
+    setDraftStatus(
+      `${statusLabel} às ${new Intl.DateTimeFormat("pt-BR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date(savedAt))}`,
+    );
+  }, []);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
 
     const interval = window.setInterval(() => {
-      if (!editorRef.current) return;
-
-      const current = draftStateRef.current;
-      if (current.isLoadingPost) return;
-
-      transformDividerLines(editorRef.current);
-      syncTextareaMarkup(editorRef.current);
-
-      const nextHtml = editorRef.current.innerHTML;
-      const hasContent =
-        Boolean(current.editingSlug) ||
-        Boolean(current.title.trim()) ||
-        Boolean(current.excerpt.trim()) ||
-        Boolean(current.coverDataUrl) ||
-        Boolean(textFromHtml(nextHtml).trim());
-
-      if (!hasContent) return;
-
-      const savedAt = Date.now();
-      saveWriterDraft(current.editingSlug, {
-        title: current.title,
-        excerpt: current.excerpt,
-        categorySlug: current.categorySlug,
-        coverDataUrl: current.coverDataUrl,
-        editorHtml: nextHtml,
-        savedAt,
-      });
-
-      if (nextHtml !== editorHtmlRef.current) {
-        editorHtmlRef.current = nextHtml;
-        setEditorHtml(nextHtml);
-      }
-
-      setDraftStatus(
-        `rascunho salvo às ${new Intl.DateTimeFormat("pt-BR", {
-          hour: "2-digit",
-          minute: "2-digit",
-        }).format(new Date(savedAt))}`,
-      );
+      saveCurrentDraftNow();
     }, 10000);
 
     return () => window.clearInterval(interval);
-  }, []);
+  }, [saveCurrentDraftNow]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") saveCurrentDraftNow("rascunho preservado");
+    };
+    const handlePageHide = () => saveCurrentDraftNow("rascunho preservado");
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("pagehide", handlePageHide);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("pagehide", handlePageHide);
+    };
+  }, [saveCurrentDraftNow]);
 
   const rememberSelection = () => {
     const selection = window.getSelection();
@@ -2057,8 +2323,147 @@ function WritePage() {
     runSlashCommand(item.command);
   };
 
+  const runGrammarReview = async () => {
+    if (!accessToken) {
+      setStatus("Faca login como admin para usar a revisao.");
+      return;
+    }
+
+    const targets = collectGrammarTextTargets(editorRef.current, title, excerpt);
+    const segments = targets.map(({ id, text }) => ({ id, text }));
+
+    if (segments.length === 0) {
+      setStatus("Nao encontrei texto para corrigir.");
+      return;
+    }
+
+    syncEditor();
+    setIsAiReviewing("grammar");
+    setStatus("Corrigindo gramatica...");
+
+    try {
+      const result = await reviewGrammar({ data: { adminToken: accessToken, segments } });
+      const targetsById = new Map(targets.map((target) => [target.id, target]));
+      let appliedChanges = 0;
+
+      historyPastRef.current = [...historyPastRef.current.slice(-79), editorHtmlRef.current];
+      historyFutureRef.current = [];
+
+      for (const change of result.changes) {
+        const target = targetsById.get(change.id);
+        if (!target || !change.correctedText || change.correctedText === target.text) continue;
+
+        if (target.kind === "title") {
+          setTitle(change.correctedText);
+        } else if (target.kind === "excerpt") {
+          setExcerpt(change.correctedText);
+        } else {
+          target.node.textContent = change.correctedText;
+        }
+
+        appliedChanges += 1;
+      }
+
+      syncEditor(false);
+      setStatus(
+        appliedChanges > 0
+          ? `Gramatica corrigida em ${appliedChanges} trecho${appliedChanges === 1 ? "" : "s"}.`
+          : "A gramatica ja parece boa.",
+      );
+    } catch (error) {
+      setStatus(error instanceof Error ? `Erro na revisao: ${error.message}` : "Erro na revisao gramatical.");
+    } finally {
+      setIsAiReviewing(null);
+    }
+  };
+
+  const runTechnicalReview = async () => {
+    if (!accessToken) {
+      setStatus("Faca login como admin para usar a revisao.");
+      return;
+    }
+
+    restoreSelection();
+    const selection = window.getSelection();
+    const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+    const selectedText =
+      range && editorRef.current?.contains(range.commonAncestorContainer) && !selection?.isCollapsed
+        ? selection?.toString().trim() ?? ""
+        : "";
+    const selectedHtml = selectedText && range ? cleanSelectionHtmlForAi(range) : "";
+    const text = selectedText || collectReviewText(editorRef.current, title, excerpt);
+
+    if (!text.trim()) {
+      setStatus("Nao encontrei texto para revisar.");
+      return;
+    }
+
+    if (!selectedText) {
+      const confirmed = window.confirm(
+        "Nenhum trecho esta selecionado. Enviar o texto inteiro do editor para revisao tecnica?",
+      );
+      if (!confirmed) return;
+      technicalReviewRangeRef.current = null;
+    } else if (range) {
+      technicalReviewRangeRef.current = range.cloneRange();
+    }
+
+    setIsAiReviewing("technical");
+    setStatus("Analisando conteudo tecnico...");
+    setTechnicalReviewDialog(null);
+
+    try {
+      const result = await reviewTechnicalContent({
+        data: {
+          adminToken: accessToken,
+          text,
+          html: selectedHtml,
+          context: categories.find((category) => category.slug === categorySlug)?.name ?? categorySlug,
+        },
+      });
+
+      setTechnicalReviewDialog({
+        result,
+        originalText: text,
+        suggestedHtml: selectedHtml ? result.suggestedHtml : "",
+        canApply: Boolean(selectedText && technicalReviewRangeRef.current && result.suggestedRewrite.trim()),
+      });
+      setStatus("Revisao tecnica pronta.");
+    } catch (error) {
+      setStatus(error instanceof Error ? `Erro na revisao: ${error.message}` : "Erro na revisao tecnica.");
+    } finally {
+      setIsAiReviewing(null);
+    }
+  };
+
+  const applyTechnicalSuggestion = () => {
+    const suggestion = technicalReviewDialog?.result.suggestedRewrite.trim();
+    const suggestedHtml = technicalReviewDialog?.suggestedHtml.trim();
+    const range = technicalReviewRangeRef.current;
+
+    if (!suggestion || !range || !editorRef.current) return;
+
+    historyPastRef.current = [...historyPastRef.current.slice(-79), editorHtmlRef.current];
+    historyFutureRef.current = [];
+    range.deleteContents();
+
+    const fragment = suggestedHtml ? sanitizeAiSuggestionHtml(suggestedHtml) : null;
+    range.insertNode(fragment && fragment.textContent?.trim() ? fragment : document.createTextNode(suggestion));
+
+    setTechnicalReviewDialog(null);
+    technicalReviewRangeRef.current = null;
+    syncEditor(false);
+    setStatus("Sugestao tecnica aplicada.");
+  };
+
   const submitPost = async () => {
-    setStatus("");
+    if (!accessToken) {
+      setStatus("Faca login como admin para publicar.");
+      return;
+    }
+
+    const action = editingSlug ? "Atualizando" : "Publicando";
+    setStatus(`${action}...`);
     setIsPublishing(true);
 
     const parsedBlocks = parseEditorBlocks(editorRef.current);
@@ -2068,6 +2473,7 @@ function WritePage() {
       categorySlug,
       coverDataUrl,
       blocks: parsedBlocks,
+      adminToken: accessToken,
     };
 
     try {
@@ -2082,17 +2488,28 @@ function WritePage() {
       setPublished(post);
       setEditingSlug(post.slug);
       setDraftStatus("");
-      setStatus(editingSlug ? "Atualizado." : "Publicado.");
+      setStatus(editingSlug ? "Post atualizado com sucesso." : "Post publicado com sucesso.");
 
       if (typeof window !== "undefined") {
         window.history.replaceState(null, "", `/escrever?edit=${post.slug}`);
       }
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Nao consegui salvar.");
+      setStatus(error instanceof Error ? `Erro ao publicar: ${error.message}` : "Erro ao publicar: nao consegui salvar.");
     } finally {
       setIsPublishing(false);
     }
   };
+
+  if (!isAdmin) {
+    return (
+      <div className="min-h-screen bg-background text-foreground" style={writerTheme}>
+        <Header />
+        <main className="mx-auto max-w-3xl px-4 py-16 text-muted-foreground">
+          {isCheckingAdmin ? "Verificando acesso admin..." : "Redirecionando para login..."}
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground" style={writerTheme}>
@@ -2118,6 +2535,15 @@ function WritePage() {
                 {draftStatus}
               </span>
             )}
+            {availableDraft && (
+              <button
+                type="button"
+                onClick={() => applyDraft(availableDraft)}
+                className="inline-flex h-9 items-center rounded-md border border-border bg-card px-3 font-mono text-[11px] uppercase tracking-widest text-muted-foreground transition-colors hover:border-primary/60 hover:text-primary"
+              >
+                Voltar rascunho
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {
@@ -2138,6 +2564,11 @@ function WritePage() {
               <Save className="h-4 w-4" />
               {isLoadingPost ? "Carregando" : isPublishing ? (editingSlug ? "Atualizando" : "Publicando") : editingSlug ? "Atualizar" : "Publicar"}
             </button>
+            {status && (
+              <span className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground" aria-live="polite">
+                {status}
+              </span>
+            )}
           </div>
         </div>
 
@@ -2204,6 +2635,31 @@ function WritePage() {
 
           <div className="relative overflow-hidden rounded-2xl border border-border bg-card/70">
             <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-3">
+              <button
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={runGrammarReview}
+                disabled={Boolean(isAiReviewing)}
+                className="inline-flex h-9 items-center gap-2 rounded-md border border-primary/40 bg-primary/10 px-3 font-mono text-[11px] uppercase tracking-widest text-primary transition-colors hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label="Corrigir gramatica"
+                title="Corrigir gramatica"
+              >
+                <Sparkles className="h-4 w-4" />
+                {isAiReviewing === "grammar" ? "Corrigindo" : "Gramatica"}
+              </button>
+              <button
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={runTechnicalReview}
+                disabled={Boolean(isAiReviewing)}
+                className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-secondary/40 px-3 font-mono text-[11px] uppercase tracking-widest text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label="Verificar conteudo tecnico"
+                title="Verificar conteudo tecnico"
+              >
+                <Sparkles className="h-4 w-4" />
+                {isAiReviewing === "technical" ? "Analisando" : "Tecnico"}
+              </button>
+
               <button
                 type="button"
                 onMouseDown={(event) => event.preventDefault()}
@@ -2504,6 +2960,80 @@ function WritePage() {
           )}
         </section>
       </main>
+
+      {technicalReviewDialog && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 px-4">
+          <section className="w-full max-w-2xl rounded-2xl border border-border bg-card p-5 shadow-card">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-primary">
+                  revisao tecnica
+                </p>
+                <h2 className="mt-2 font-display text-3xl leading-tight">
+                  {technicalReviewDialog.result.hasIssue ? "Possivel ajuste" : "Nenhum erro claro"}
+                </h2>
+              </div>
+              <span className="rounded-full border border-border px-3 py-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                confianca {technicalReviewDialog.result.confidence}
+              </span>
+            </div>
+
+            <div className="mt-5 space-y-4 text-sm leading-relaxed">
+              <div>
+                <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                  trecho analisado
+                </p>
+                <p className="mt-2 max-h-32 overflow-y-auto rounded-lg border border-border bg-background/60 p-3 text-muted-foreground">
+                  {technicalReviewDialog.originalText}
+                </p>
+              </div>
+
+              <div>
+                <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                  motivo
+                </p>
+                <p className="mt-2 text-foreground">{technicalReviewDialog.result.reason}</p>
+              </div>
+
+              {technicalReviewDialog.result.suggestedRewrite && (
+                <div>
+                  <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                    sugestao
+                  </p>
+                  <div
+                    className="mt-2 rounded-lg border border-primary/30 bg-primary/10 p-3 text-foreground"
+                    dangerouslySetInnerHTML={{
+                      __html: technicalReviewDialog.suggestedHtml || escapeHtml(technicalReviewDialog.result.suggestedRewrite),
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="mt-6 flex flex-wrap justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setTechnicalReviewDialog(null);
+                  technicalReviewRangeRef.current = null;
+                }}
+                className="inline-flex h-10 items-center rounded-md border border-border px-4 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              >
+                Ignorar
+              </button>
+              {technicalReviewDialog.canApply && (
+                <button
+                  type="button"
+                  onClick={applyTechnicalSuggestion}
+                  className="inline-flex h-10 items-center rounded-md bg-gradient-glow px-4 text-sm font-medium text-primary-foreground transition-transform hover:scale-[1.02]"
+                >
+                  Aplicar sugestao
+                </button>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
 
       <DiagramEditor
         open={Boolean(diagramModal)}

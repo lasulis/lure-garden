@@ -6,6 +6,7 @@ import { DataFrameTable } from "@/components/DataFrameTable";
 import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 import { PostCard } from "@/components/PostCard";
+import { useAdminSession } from "@/hooks/use-admin-session";
 import { diagramToSvg } from "@/lib/diagram";
 import { renderLatexHtml } from "@/lib/latex-render";
 import { categories } from "@/lib/posts";
@@ -189,6 +190,7 @@ function PublishedBlockView({ block }: { block: PublishedBlock }) {
 
 function PublishedPostPage({ post }: { post: PublishedPost }) {
   const category = categories.find((item) => item.slug === post.categorySlug) ?? categories[0];
+  const { isAdmin } = useAdminSession();
 
   return (
     <div className="min-h-screen">
@@ -205,13 +207,15 @@ function PublishedPostPage({ post }: { post: PublishedPost }) {
                 <ArrowLeft className="h-3.5 w-3.5" />
                 voltar
               </a>
-              <a
-                href={`/escrever?edit=${post.slug}`}
-                className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground transition-colors hover:border-primary/60 hover:text-primary"
-              >
-                <Pencil className="h-3.5 w-3.5" />
-                editar post
-              </a>
+              {isAdmin && (
+                <a
+                  href={`/escrever?edit=${post.slug}`}
+                  className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-muted-foreground transition-colors hover:border-primary/60 hover:text-primary"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  editar post
+                </a>
+              )}
             </div>
 
             <div className="mt-8 flex flex-wrap items-center gap-3">
